@@ -1,0 +1,18 @@
+SENSOR ID: 2
+TEMPERATURE: 22.49
+HUMIDITY: 47.13
+BATTERY: 99
+TIMESTAMP: 1574510765
+
+ Bytes = \x02\x85\xcc\xf4\x85\xeb\xb3A\x1f\x85<BcU\x00\x00\xad\xd9]\x00\x00\x00\x00'
+ Hexa= 02 |85 cc f4| |85 eb b3 41| |1f 85 3c 42| |63| |550000| |ad 20 d9 5d| 00000000
+                   #<----       #<----         <--------
+ Int= 2 | (f4 cc 85 -> ignore) | 41 b3 eb 85 = 22.49 | 42 3c 85 1f = 47.13 | 63(hex) = 99 | (55 00 00 ->ignore) | 5d d9 20 ad=1574510765
+
+ Explicação -> O primeiro byte em hexa corresponde ao id do sensor (hexa->int)
+            -> Do 2 ao 4 bloco, inclusive, é para ignorar
+            -> Do 5 ao 9 bloco, inclusive, em hexa, se revertermos a ordem, obtemos o valor da temperatura (A conversão tem de ser de hexa para float)
+            -> Do 10 ao 13 bloco, inclusive, em hexa, se revertermos a ordem, obtemos o valor da humidade (A conversão tem de ser de hexa para float)
+            -> 0 14 bloco, em hexa corresponde à bateria (ainda em testes para 100% de bateria) (hexa -> int)
+            -> Do 15 bloco ao 17 bloco, inclusive, em hexa, é para ignorar (o numero dos blocos ainda está sobre testes devido aos 100%)
+            -> Do 18 bloco 21, inclusive, em hexa, se revertemos a ordem obtemos o timestamp (o numero dos blocos ainda está sobre testes devido aos 100%) (hexa -int32)
