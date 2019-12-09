@@ -4,38 +4,6 @@ import time
 import requests
 import os
 from models import AQModel
-import paho.mqtt.client as mqtt
-import os
-from urllib.parse import urlparse
-
-listSensors = []
-
-listAqsSemSensor = []
-listToSend = []
-
-
-# Define event callbacks
-def on_connect(client, userdata, flags, rc):
-    print("rc: " + str(rc))
-
-
-def on_message(client, obj, msg):
-    print(msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
-    idSensor = int(str(msg.payload))
-    getSensors(idSensor)
-    checkAQsSemSensor()
-
-
-def on_publish(client, obj, mid):
-    print("mid: " + str(mid))
-
-
-def on_subscribe(client, obj, mid, granted_qos):
-    print("Subscribed: " + str(mid) + " " + str(granted_qos))
-
-
-def on_log(client, obj, level, string):
-    print(string)
 
 
 def convert(s):
@@ -46,135 +14,124 @@ def convert(s):
 
 
 def getValues(hexaString):
+    # lista aux
     listReverse = []
+    # percorre o hexa recebido do fim para o inicio (visto que os valores estão ao contrário)
     for i in range(len(hexaString), 0, -1):
+        # verifica quando é um bloco hexadecimal (normalmente de 2 char)
         if i % 2 == 1:
+            # constroi o bloco
             s = hexaString[i - 1] + hexaString[i]
+            # guarda o bloco
             listReverse.append(s)
+    # append do novo bloco
     hexaStringOK = ""
     for l in listReverse:
         hexaStringOK = hexaStringOK + l
     listReverse.clear()
+    # return do novo bloco ordenado
     return hexaStringOK
 
 
 def sendPost(listToSend):
+    # preparação do array
     dados = "[ "
     url = 'https://taes-webservice.herokuapp.com/api/aq'  # todo mudar o link e descomentar as 2 proximas linhas
     for a in listToSend:
+        # escritura do json
         dados = dados + " { \"SensorID\": \"" + str(
             a.sensor) + "\", \"Temperature\": \"" + str(
             a.temp) + "\", \"Humidity\" : \"" + str(
             a.humidity) + "\", \"Battery\": \"" + str(
             a.batery) + "\", \"Timestamp\": \"" + str(a.timestamp) + "\" },"
+    # remoção da virgula no ultimo valor (quando chega ao fim , ela não é pretendida)
     dados = dados[:-1]
+    # fecha o array
     dados = dados + " ]"
+    # send dos dados (o data mapeia a string para json)
     x = requests.post(url, data=dados)
+    # retorna toda a variavel de response
     return x
 
 
-def checkAQsSemSensor():
-    for aq in listAqsSemSensor:
-        if listSensors.__contains__(aq.sensor):
-            listToSend.append(aq)
-
-
-def getSensors(id):
-    url = 'https://taes-webservice.herokuapp.com/api/sensors/all'  # todo mudar o link e descomentar as 2 proximas linhas
-    dados = "{ \"SensorID\2: " + str(id) + " }"
-    x = requests.post(url, data=dados)
-    dataSensors = x.json()
-    jArray = json.load(dataSensors)
-    for s in jArray:
-        listSensors.append(s['SensorID'])
-
-    # todo also tenho de ajustar o id da burst no webservice
-
-
 def main():
-    mqttc = mqtt.Client()
-    # Assign event callbacks
-    mqttc.on_message = on_message
-    mqttc.on_connect = on_connect
-    mqttc.on_publish = on_publish
-    mqttc.on_subscribe = on_subscribe
-    url_str = os.environ.get('test.mosquitto.org', 'mqtt://localhost:1883')
-    url = urlparse.urlparse(url_str)
-    topic = 'newSensorsInsertIS'
-    mqttc.connect(url.hostname, url.port)
-    mqttc.subscribe(topic, 0)
-    getSensors(0)
     with open('data.bin', 'rb') as fileB:
         listAqs = []
         listAqsFail = []
-
-        responseJson = ""
-        urlGet = 'https://taes-webservice.herokuapp.com/api/sensors'
         lastTimeSent = ""
-
+        # vars necessárias
         while True:
+            # obter o ultimo timestamp enviado
             if os.path.isfile('./lastSent.txt'):
                 with open('lastSent.txt', 'r') as lastSentRead:
                     lastTimeSent = lastSentRead.read()
                     print("Timestamp lido do txt: {0}".format(lastTimeSent))
+            # leitura de um registo e conversão para hexa
             binaryData = fileB.read(24)
             c = binaryData.hex()
+            # se a leitura não for vazia, irá processar os dados, senão vai fazer um sleep de 15 sec
             if c != "":
-                # filtragem do hexa
+                # mapeamento do hexa (split da string c do index x ao index y (c[x:y]
                 temperatureHex = c[8:16]
                 humidityHex = c[16:24]
                 timestampHex = c[32:40]
-
+                # estes 2 não têm a necessidade de serem revertidos, já vêm na ordem certa
                 sensorIdHexOK = c[:2]
                 batteryHexOK = c[24:26]
-
+                # obter o valor concreto do timestamp (ver comments na função)
                 timestampHexOK = getValues(timestampHex)
                 timestamp = int(timestampHexOK, 16)
+                # se o timestamp guardado for maior que o lido, não se processa os dados
                 if int(lastTimeSent) < timestamp:
+                    # Igual ao timestamp
                     temperatureHexOK = getValues(temperatureHex)
+                    # convert(hex) é para converter de hexa para float
                     temperature = convert(temperatureHexOK)
-
+                    # Igual ao timestamp
                     humidityHexOK = getValues(humidityHex)
                     humidity = convert(humidityHexOK)
-
+                    # visto que já vêm na ordem, basta os converter
                     sensorId = int(sensorIdHexOK, 16)
                     battery = int(batteryHexOK, 16)
-
+                    # set dos valores para um novo modelo e para uma lista
                     aq = AQModel.AQModel(temperature, humidity, sensorId, timestamp, battery)
-                    if listSensors.__contains__(aq.sensor):
-                        listAqs.append(aq)
-                    else:
-                        listAqsSemSensor.append(aq)
-
+                    listAqs.append(aq)
+                    # len list=10 == 1m:30s
                     if len(listAqs) == 10:
+                        # primeiro saber se o server está estável, senão todos os valores lidos irão para uma lista
+                        # de fails e os dados continuaram a ser processados
                         x = requests.get('https://taes-webservice.herokuapp.com/api/status')
                         if x.status_code == 200:
-                            # send fails
+                            # send fails quando existem fails e o servidor está estável, os fails têm prioridade pois
+                            # já lá deviam estar
                             if len(listAqsFail) != 0:
+                                # send dos valores que retorna a resposta
                                 response = sendPost(listAqsFail)
                                 if response.status_code == 200:
+                                    # se todos os valores foram inseridos, já não há necessidade de os guardar
                                     listAqsFail.clear()
-
-                            if len(listToSend) != 0:
-                                response = sendPost(listToSend)
-                                if response.status_code != 200:
-                                    for a in listToSend:
-                                        listAqsFail.append(a)
-                                listToSend.clear()
-
+                            # send oks
                             response = sendPost(listAqs)
+                            # send dos valores
                             if response.status_code != 200:
+                                # se a resposta foi diferente de 200 (ex: o server caiu desde o ping até aqui)
+                                # os valores são inseridos nos fails para na proxima eles sejam enviados
                                 for a in listAqs:
                                     listAqsFail.append(a)
                             else:
+                                # senão houve fails, será guardado o ultimo valor do timestamp para que seja comparado
+                                # nos proximos processamentos de dados
                                 with open('lastSent.txt', 'w+') as lastSent:
                                     lastSent.write(str(listAqs[len(listAqs) - 1].timestamp))
                                     lastSent.close()
+                            # em qualquer um dos casos, a lista tem de ser limpa para receber os novos dados
                             listAqs.clear()
 
                         else:
+                            # se o server não está estável, guarda-se os dados nos fails
                             for a in listAqs:
                                 listAqsFail.append(a)
+                            listAqs.clear()
             else:
                 time.sleep(15)
 
