@@ -4,6 +4,8 @@ import time
 import requests
 import os
 from models import AQModel
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def convert(s):
@@ -36,7 +38,7 @@ def getValues(hexaString):
 def sendPost(listToSend):
     # preparação do array
     dados = "[ "
-    url = 'https://taes-webservice.herokuapp.com/api/aq'  # todo mudar o link e descomentar as 2 proximas linhas
+    url = 'https://localhost:44301/api/aq/burst'  # todo mudar o link e descomentar as 2 proximas linhas
     for a in listToSend:
         # escritura do json
         dados = dados + " { \"SensorID\": \"" + str(
@@ -49,7 +51,7 @@ def sendPost(listToSend):
     # fecha o array
     dados = dados + " ]"
     # send dos dados (o data mapeia a string para json)
-    x = requests.post(url, data=dados)
+    x = requests.post(url, data=dados,verify=False)
     # retorna toda a variavel de response
     return x
 
@@ -66,6 +68,8 @@ def main():
                 with open('lastSent.txt', 'r') as lastSentRead:
                     lastTimeSent = lastSentRead.read()
                     print("Timestamp lido do txt: {0}".format(lastTimeSent))
+            else:
+                lastTimeSent="0"
             # leitura de um registo e conversão para hexa
             binaryData = fileB.read(24)
             c = binaryData.hex()
@@ -81,6 +85,7 @@ def main():
                 # obter o valor concreto do timestamp (ver comments na função)
                 timestampHexOK = getValues(timestampHex)
                 timestamp = int(timestampHexOK, 16)
+                print(timestamp)
                 # se o timestamp guardado for maior que o lido, não se processa os dados
                 if int(lastTimeSent) < timestamp:
                     # Igual ao timestamp
@@ -100,8 +105,11 @@ def main():
                     if len(listAqs) == 10:
                         # primeiro saber se o server está estável, senão todos os valores lidos irão para uma lista
                         # de fails e os dados continuaram a ser processados
-                        x = requests.get('https://taes-webservice.herokuapp.com/api/status')
+                        x = requests.post('https://localhost:44301/api/ok',verify=False)
+                        print("status = {0}".format(x.status_code))
+                        x.status_code=200
                         if x.status_code == 200:
+                            print("status Inside")
                             # send fails quando existem fails e o servidor está estável, os fails têm prioridade pois
                             # já lá deviam estar
                             if len(listAqsFail) != 0:
@@ -114,6 +122,7 @@ def main():
                             response = sendPost(listAqs)
                             # send dos valores
                             if response.status_code != 200:
+                                print(response.content)
                                 # se a resposta foi diferente de 200 (ex: o server caiu desde o ping até aqui)
                                 # os valores são inseridos nos fails para na proxima eles sejam enviados
                                 for a in listAqs:
@@ -121,6 +130,7 @@ def main():
                             else:
                                 # senão houve fails, será guardado o ultimo valor do timestamp para que seja comparado
                                 # nos proximos processamentos de dados
+                                print(response.content)
                                 with open('lastSent.txt', 'w+') as lastSent:
                                     lastSent.write(str(listAqs[len(listAqs) - 1].timestamp))
                                     lastSent.close()
